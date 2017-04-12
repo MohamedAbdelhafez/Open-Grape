@@ -61,6 +61,7 @@ class Analysis:
         
         #inter_vecs = tf.pack(self.tf_inter_vecs).eval(feed_dict=self.feed_dict)
         inter_vecs = self.tf_inter_vecs.eval(feed_dict = self.feed_dict)
+        
         shape = np.shape(inter_vecs)
         #print shape
         if self.sys_para.save:
@@ -95,7 +96,8 @@ class Analysis:
             inter_vecs_imag.append(inter_vec_imag)
             
             ii+=1
-        #print np.shape(inter_vecs_mag_squared)
+        
+        
         '''    
         if self.sys_para.save:
             with H5File(self.sys_para.file_path) as hf:

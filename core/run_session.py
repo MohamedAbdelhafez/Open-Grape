@@ -4,6 +4,7 @@ from Analysis import Analysis
 import os
 import time
 from scipy.optimize import minimize
+from helper_functions.grape_functions import *
 
 from helper_functions.datamanagement import H5File
 
@@ -70,6 +71,32 @@ class run_session:
         
         return target_vectors
     
+    def divide(self, needed,max_traj):
+        returned = []
+        
+        end = False
+        
+        while not end:
+            summation = 0
+            trial = np.zeros_like(needed)
+            flag = True
+
+            for ii in range (len(needed)):
+                if flag and ((summation + needed[ii]) <= max_traj):
+                    summation = summation + needed[ii]
+                    trial[ii] = needed[ii]
+                    if ii == len(needed)-1:
+                        end = True
+                else:
+
+                    trial[ii] = max_traj - summation
+                    summation = max_traj
+                    flag = False
+            returned.append(trial)
+            needed = needed-trial
+        return returned
+           
+            
     def start_adam_optimizer(self):
         # adam optimizer  
         self.start_time = time.time()
@@ -79,12 +106,14 @@ class run_session:
             learning_rate = float(self.conv.rate) * np.exp(-float(self.iterations) / self.conv.learning_rate_decay)
             if self.sys_para.traj:
                 self.traj_num = self.sys_para.trajectories
+                max_traj = int(35000/len(self.sys_para.H0))
+                #max_traj = 50
                 
                 num_psi0 = len(self.sys_para.initial_vectors)
                 needed_traj = np.zeros([num_psi0])
                 start = (np.zeros([num_psi0]))
                 end  = (np.zeros([num_psi0]))
-                vec_trajs = np.ones([num_psi0])
+                
                 
                 for kk in range (num_psi0):
                     vec_trajs = np.zeros([num_psi0])
@@ -92,17 +121,57 @@ class run_session:
                     self.feed_dict = {self.tfs.learning_rate: 0, self.tfs.start: start, self.tfs.end: end,self.tfs.num_trajs:vec_trajs}
                     self.grad_pack, self.norms = self.session.run(
                 [self.tfs.grad_pack,self.tfs.norms], feed_dict=self.feed_dict)
+                    #print "norm" + str(self.norms)
+                    #print "Before weights: "+str(np.sum(np.square(self.grad_pack)))
+                    if kk ==0:
+                        self.grad_av = np.rint(self.norms* self.traj_num)  * self.grad_pack / (num_psi0*self.traj_num)
+                    else:
+                        self.grad_av = self.grad_av + (self.norms * self.grad_pack / num_psi0)
                     #print self.norms
                 
                     needed_traj[kk] = self.traj_num-np.rint(self.norms* self.traj_num) 
                     start[kk] = self.norms
                     end[kk] = 1.0
-                    print "Generating "+str(needed_traj[kk])+" jump trajectories for state "+str(kk)+". Last norm is "+str(start[kk])
-                self.feed_dict = {self.tfs.learning_rate: 0, self.tfs.start: start, self.tfs.end: end,self.tfs.num_trajs:needed_traj}
-                self.g_squared, self.l, self.rl, self.metric,self.norms,self.r,self.a,self.vecs,self.tar,self.final = self.session.run(
-                [self.tfs.grad_squared, self.tfs.loss, self.tfs.reg_loss, self.tfs.unitary_scale,self.tfs.norms,self.tfs.r,self.tfs.a,self.tfs.vecs,self.tfs.target_vecs,self.tfs.final_state], feed_dict=self.feed_dict)
+                    #print "Generating "+str(needed_traj[kk])+" jump trajectories for state "+str(kk)+". Last norm is "+str(start[kk])
                 
-                #print self.r
+                #print "Before Jumps: "+str(np.sum(np.square(self.grad_av)))
+                #print needed_traj
+                jump_traj = np.sum(needed_traj)
+                if jump_traj > 0:
+                    
+                    self.divided_branches = self.divide(needed_traj,max_traj)
+                    for ii in range (len(self.divided_branches)):
+                        needed_traj = self.divided_branches[ii]
+                        #print "Doing " + str(needed_traj) + " jump trajectories with start: " + str(start)+ " and end: " + str(end)
+                          
+                        self.feed_dict = {self.tfs.learning_rate: 0, self.tfs.start: start, self.tfs.end: end,self.tfs.num_trajs:needed_traj}
+                        #self.g_squared,self.grad_pack, self.l, self.rl, self.metric,self.norms,self.r,self.a,self.vecs,self.tar,self.final = self.session.run(
+                    #[self.tfs.grad_squared,self.tfs.grad_pack, self.tfs.loss, self.tfs.reg_loss, self.tfs.unitary_scale,self.tfs.norms,self.tfs.r,self.tfs.a,self.tfs.vecs,self.tfs.target_vecs,self.tfs.final_state], feed_dict=self.feed_dict)
+                        self.grad_pack,self.l,self.r, self.js = self.session.run([self.tfs.grad_pack,self.tfs.loss,self.tfs.r,self.tfs.all_jumps], feed_dict = self.feed_dict)
+                        #print "Mid Jumps: "+str(np.sum(np.square(self.grad_pack)))
+                        #print "l: " + str(self.l) 
+                        #print np.sum(self.js)
+                        if np.isnan(self.l):
+                            for ii in self.r:
+                                print ii
+                            print self.js
+                            
+                        self.grad_av = self.grad_av + (np.sum(needed_traj)/(num_psi0*self.sys_para.trajectories)) * self.grad_pack
+                #print "After Jumps: "+str(np.sum(np.square(self.grad_av)))
+                learning_rate = float(self.conv.rate) * np.exp(-float(self.iterations) / self.conv.learning_rate_decay)
+                
+                self.feed_dict = {self.tfs.learning_rate: learning_rate, self.tfs.start: (np.zeros([num_psi0])), self.tfs.end: (np.zeros([num_psi0])),self.tfs.num_trajs:np.ones([num_psi0]), self.tfs.avg_grad: self.grad_av}
+                _ = self.session.run([self.tfs.optimizer],feed_dict = self.feed_dict)
+                
+                self.l,self.rl,self.g_squared,self.metric, final, target= self.session.run([self.tfs.loss, self.tfs.reg_loss,self.tfs.grad_squared,self.tfs.unitary_scale,self.tfs.final_state,self.tfs.target_vecs], feed_dict=self.feed_dict)
+                
+                self.feed_dict = {self.tfs.learning_rate: 0, self.tfs.start: (np.zeros([num_psi0])), self.tfs.end: (np.zeros([num_psi0])),self.tfs.num_trajs:np.ones([num_psi0]), self.tfs.avg_grad: self.grad_av}
+                #print "final"
+                #print final
+                #print target
+                #print self.l
+                self.j = jump_traj
+                #print self.l
                 #print self.norms
             
             
@@ -138,7 +207,6 @@ class run_session:
             if (self.iterations % self.conv.update_step == 0):
                 self.anly = Analysis(self.sys_para, self.tfs.final_state, self.tfs.ops_weight, self.tfs.unitary_scale,
                                      self.tfs.inter_vecs,self.feed_dict)
-                
                 self.save_data()
                 self.display()
             if (self.iterations % self.conv.evol_save_step == 0):
@@ -202,7 +270,7 @@ class run_session:
         # display of simulation results
 
         if self.show_plots:
-            self.conv.update_plot_summary(self.l, self.rl, self.anly)
+            self.conv.update_plot_summary(self.l, self.rl, self.anly,self.j)
         else:
             print 'Error = :%1.2e; Runtime: %.1fs; Iterations = %d, grads =  %10.3e, unitary_metric = %.5f' % (
             self.l, self.elapsed, self.iterations, self.g_squared, self.metric)

@@ -341,10 +341,10 @@ class TensorflowState:
             bd = tf.reduce_sum(tf.mul(psi_1_imag,psi_2_imag),0)
             bc = tf.reduce_sum(tf.mul(psi_1_imag,psi_2_real),0)
             ad = tf.reduce_sum(tf.mul(psi_1_real,psi_2_imag),0)
-            reals = tf.square(tf.reduce_sum(tf.add(ac,bd))) # first trace inner product of all vectors, then squared
-            imags = tf.square(tf.reduce_sum(tf.sub(bc,ad)))
+            reals = tf.reduce_sum(tf.square(tf.add(ac,bd))) # first trace inner product of all vectors, then squared
+            imags = tf.reduce_sum(tf.square(tf.sub(bc,ad)))
             #norm = (tf.add(reals,imags))/(len(self.sys_para.states_concerned_list)**2)
-            norm = (tf.add(reals,imags))/(tf.cast(self.num_vecs,tf.float32)**2)
+            norm = (tf.add(reals,imags))/(tf.cast(self.num_vecs,tf.float32))
         return norm
     
     def get_inner_product_3D(self,psi1,psi2):
@@ -408,10 +408,14 @@ class TensorflowState:
         self.new_grad = zip(tf.unpack(self.avg_grad),self.var)
         #self.new_grad = self.grad
         
-        
+        if self.sys_para.traj:
+            self.optimizer = self.opt.apply_gradients(self.new_grad)
+            #self.optimizer = self.opt.apply_gradients(self.grad)
+        else:
+            self.optimizer = self.opt.apply_gradients(self.grad)
        
         
-        self.optimizer = self.opt.apply_gradients(self.grad)
+        #self.optimizer = self.opt.apply_gradients(self.grad)
         
         print "Optimizer initialized."
     
@@ -452,6 +456,7 @@ class TensorflowState:
         
         self.inter_vecs_list=[]
         self.inter_vecs_list.append(self.old_psi)
+        self.all_jumps= []
         
         for ii in np.arange(0,self.sys_para.steps):
             self.old_psi = self.new_psi        
@@ -461,10 +466,11 @@ class TensorflowState:
             cond= tf.less(self.norms,self.r)
             self.a=tf.where(cond)
             
+            
             c = tf.constant(0)
-            def while_condition(c,old,new,norms):
+            def while_condition(c,old,new,norms,randoms):
                 return tf.less(c, tf.size(self.a))
-            def jump_fn(c,old,new,norms):
+            def jump_fn(c,old,new,norms,randoms):
                 state_num=self.sys_para.state_num
 
                 index = tf.reshape(tf.gather(self.a,c),[])
@@ -478,7 +484,6 @@ class TensorflowState:
                 
                 
                 #####
-                
                 
                 
                 if len(self.sys_para.c_ops)>1:
@@ -497,7 +502,7 @@ class TensorflowState:
                         s=s+weights[jj]
                         sums=tf.concat(0,[sums,tf.reshape(s,[1])])
 
-                    r2 = self.get_random(0,1)
+                    r2 = tf.random_uniform([1],0,1)
                     #tensorflow conditional graphing, checks for the first time a summed probability exceeds the random number
                     rvector=r2 * tf.ones_like(sums)
                     cond2= tf.greater_equal(sums,rvector)
@@ -533,13 +538,19 @@ class TensorflowState:
                 shape = tf.cast(tf.pack([self.num_vecs]),tf.int64)
                 Delta_norm = tf.SparseTensor(tf.reshape(index,[1,1]), values, shape)
                 norms = norms + tf.sparse_tensor_to_dense(Delta_norm)
+               
+                new_random = self.get_one_random(self.start, self.end,index)
+                values = tf.reshape(new_random - tf.gather(randoms,index),[1])
+                #shape = tf.pack([self.num_vecs])
+                Delta_norm = tf.SparseTensor(tf.reshape(index,[1,1]), values, shape)
+                randoms = randoms + tf.sparse_tensor_to_dense(Delta_norm)
                 
                 #####
 
-                return [tf.add(c, 1),old,new,norms]
+                return [tf.add(c, 1),old,new,norms,randoms]
 
-            self.wh,self.old_psi,self.new_psi,self.norms = tf.while_loop(while_condition, jump_fn, [c,self.old_psi,self.new_psi,self.norms])
-            
+            self.wh,self.old_psi,self.new_psi,self.norms,self.r = tf.while_loop(while_condition, jump_fn, [c,self.old_psi,self.new_psi,self.norms,self.r])
+            self.all_jumps.append(self.wh)
             
             
             self.new_psi = self.normalize(self.new_psi)
@@ -560,7 +571,7 @@ class TensorflowState:
         #psi0 = inter_vec
        
         
-        
+        self.all_jumps = tf.pack(self.all_jumps)
         self.jumps.append(jumps)
         self.jumps = tf.pack(self.jumps)
         #self.norms_pc = tf.pack(self.norms)
@@ -589,7 +600,24 @@ class TensorflowState:
         state_num=self.sys_para.state_num
         psi1 = tf.reshape(psi,[2*state_num,1])
         return tf.reduce_sum(tf.square(psi1),0)
-    
+    def get_one_random(self,start,end,index):
+        vec_type = tf.constant(0)
+        sums = []
+        s = 0
+        for jj in range (len(self.sys_para.initial_vectors)):
+            #create a list of their summed probabilities
+            s=s+self.num_trajs[jj]
+            sums=tf.concat(0,[sums,tf.reshape(s,[1])])
+
+        r2 = tf.cast(index,tf.int32)
+        rvector=r2 * tf.ones_like(sums)
+        cond2= tf.greater_equal(sums,rvector)
+        b=tf.where(cond2)
+        final =tf.reshape(b[0,:],[])
+        return tf.random_uniform([1],tf.gather(start,final),tf.gather(end,final))
+
+        
+        
     def get_random(self,start,end,length=1):
         
         #Returns a random number between 0 & 1 to tell jumps when to occur

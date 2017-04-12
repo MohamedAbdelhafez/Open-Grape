@@ -120,6 +120,8 @@ class Convergence:
   
     def plot_summary(self):
         # plotting data
+        num_graphs = len(self.concerned)
+        #num_graphs = np.shape(inter_vecs)[0]
 
         if not self.last_iter == 0:
             self.runtime = time.time() - self.start_time
@@ -137,7 +139,7 @@ class Convergence:
         if self.sys_para.state_transfer:
             i2 = i2-1
 
-        gs = gridspec.GridSpec(3+i1+i2+np.shape(self.inter_vecs)[0], 2)
+        gs = gridspec.GridSpec(3+i1+i2+num_graphs, 2)
         
         index = 0
         ## cost
@@ -149,7 +151,7 @@ class Convergence:
                                                                                                    self.anly.tf_unitary_scale.eval(feed_dict = self.anly.feed_dict),
                                                                                                  
                                                                                                   self.runtime,
-                                                                                                  self.estimated_runtime,)+", jumps: "+str(self.j))
+                                                                                                  self.estimated_runtime,)+", jump trajectories: "+str(self.j))
             
             index +=1
             plt.plot(np.array(self.iterations),np.array(self.costs),'bx-',label='Fidelity Error')
@@ -192,12 +194,12 @@ class Convergence:
      
         ## state evolution
         
+        
         if self.sys_para.use_inter_vecs:
             inter_vecs = self.inter_vecs
 
             inter_vecs_array = np.array(inter_vecs)
-            print np.shape(inter_vecs)
-            for ii in range(np.shape(inter_vecs)[0]):
+            for ii in range(num_graphs):
                 plt.subplot(gs[index+ii, :],title="Evolution")
 
                 pop_inter_vecs = inter_vecs[ii]
@@ -220,7 +222,7 @@ class Convergence:
             plots = 3
         
         
-        fig.set_size_inches(15, int (plots+np.shape(self.inter_vecs)[0]*18))
+        fig.set_size_inches(15, int (plots+(num_graphs*18)))
 	
         display.display(plt.gcf())
         display.clear_output(wait=True)
