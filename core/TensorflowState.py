@@ -25,6 +25,8 @@ class TensorflowState:
             self.tf_cdagger_c = tf.constant(np.reshape(self.sys_para.cdaggerc,[len(self.sys_para.c_ops),2*self.sys_para.state_num,2*self.sys_para.state_num]),dtype=tf.float32)
             self.norms=[]
             self.jumps=[]
+            if self.sys_para.expect:
+                self.expect_op = tf.constant(self.sys_para.expect_op)
         
         
         def get_matexp(uks,H_all):
@@ -64,10 +66,10 @@ class TensorflowState:
             ###
             
             for ii in range(1,input_num):
-                coeff_grad.append(tf.reduce_sum(tf.mul(grad,
+                coeff_grad.append(tf.reduce_sum(tf.multiply(grad,
                        tf.matmul(H_all[ii],matexp,a_is_sparse=self.sys_para.sparse_H,b_is_sparse=self.sys_para.sparse_U))))
 
-            return [tf.pack(coeff_grad), tf.zeros(tf.shape(H_all),dtype=tf.float32)]                                         
+            return [tf.stack(coeff_grad), tf.zeros(tf.shape(H_all),dtype=tf.float32)]                                         
 
         global matexp_op
         
@@ -115,7 +117,7 @@ class TensorflowState:
             
             
             for ii in range(1,input_num):
-                coeff_grad.append(tf.reduce_sum(tf.mul(grad,
+                coeff_grad.append(tf.reduce_sum(tf.multiply(grad,
                        tf.matmul(H_all[ii],matvecexp,a_is_sparse=self.sys_para.sparse_H,b_is_sparse=self.sys_para.sparse_K))))
                 
              
@@ -135,7 +137,7 @@ class TensorflowState:
                 vec_grad_n = tf.matmul(H,vec_grad_n,a_is_sparse=self.sys_para.sparse_H,b_is_sparse=self.sys_para.sparse_K)
                 vec_grad = vec_grad + vec_grad_n/factorial
 
-            return [tf.pack(coeff_grad), tf.zeros(tf.shape(H_all),dtype=tf.float32),vec_grad]                                         
+            return [tf.stack(coeff_grad), tf.zeros(tf.shape(H_all),dtype=tf.float32),vec_grad]                                         
         
         global matvecexp_op
         
@@ -174,7 +176,7 @@ class TensorflowState:
                 
                 def body(i,vecs,targets):
                     
-                    def f1(): return tf.concat(0,[vecs,tf_initial_vector]), tf.concat(0,[targets,target_vector])
+                    def f1(): return tf.concat([vecs,tf_initial_vector],0), tf.concat([targets,target_vector],0)
                     def f2(): return tf_initial_vector, target_vector
                     vecs,targets = tf.cond(tf.logical_and(tf.equal(self.counter,tf.constant(0)),tf.equal(i,tf.constant(0))), f2, f1)
                     
@@ -196,7 +198,7 @@ class TensorflowState:
             for initial_vector in self.sys_para.initial_vectors:
                 tf_initial_vector = tf.constant(initial_vector,dtype=tf.float32)
                 self.tf_initial_vectors.append(tf_initial_vector)
-            self.packed_initial_vectors = tf.transpose(tf.pack(self.tf_initial_vectors))
+            self.packed_initial_vectors = tf.transpose(tf.stack(self.tf_initial_vectors))
     
     def init_tf_propagators(self):
         #tf initial and target propagator
@@ -222,7 +224,7 @@ class TensorflowState:
             self.weights_unpacked.append(self.sys_para.ops_max_amp[ii]*self.ops_weight[ii,:])
 
         #print len(self.sys_para.ops_max_amp)
-        self.H_weights = tf.pack(self.weights_unpacked,name="packed_weights")
+        self.H_weights = tf.stack(self.weights_unpacked,name="packed_weights")
            
 
 
@@ -280,9 +282,9 @@ class TensorflowState:
         for ii in np.arange(0,self.sys_para.steps):               
             inter_vec = tf.matmul(self.inter_states[ii],self.packed_initial_vectors,name="inter_vec_"+str(ii))
             self.inter_vecs_list.append(inter_vec)
-        self.inter_vecs_packed = tf.pack(self.inter_vecs_list, axis=1)
+        self.inter_vecs_packed = tf.stack(self.inter_vecs_list, axis=1)
         
-        self.inter_vecs = tf.unpack(self.inter_vecs_packed, axis = 2)
+        self.inter_vecs = tf.unstack(self.inter_vecs_packed, axis = 2)
             
         print "Vectors initialized."
         
@@ -299,7 +301,7 @@ class TensorflowState:
             psi = inter_vec               
             inter_vec = matvecexp_op(self.H_weights[:,ii],tf_matrix_list,psi)
             self.inter_vecs_list.append(inter_vec)
-        self.inter_vecs_packed = tf.pack(self.inter_vecs_list, axis=1)
+        self.inter_vecs_packed = tf.stack(self.inter_vecs_list, axis=1)
         self.inter_vecs = self.inter_vecs_packed
         #self.inter_vecs_packed.set_shape([2*self.sys_para.state_num,self.sys_para.steps,self.num_vecs] )
         #self.inter_vecs = tf.unpack(self.inter_vecs_packed, axis = 2)
@@ -317,18 +319,16 @@ class TensorflowState:
         psi_2_imag = (psi2[state_num:2*state_num])
         # psi1 has a+ib, psi2 has c+id, we wanna get Sum ((ac+bd) + i (bc-ad)) magnitude
         with tf.name_scope('inner_product'):
-            ac = tf.mul(psi_1_real,psi_2_real)
-            bd = tf.mul(psi_1_imag,psi_2_imag)
-            bc = tf.mul(psi_1_imag,psi_2_real)
-            ad = tf.mul(psi_1_real,psi_2_imag)
+            ac = tf.multiply(psi_1_real,psi_2_real)
+            bd = tf.multiply(psi_1_imag,psi_2_imag)
+            bc = tf.multiply(psi_1_imag,psi_2_real)
+            ad = tf.multiply(psi_1_real,psi_2_imag)
             reals = tf.square(tf.add(tf.reduce_sum(ac),tf.reduce_sum(bd)))
-            imags = tf.square(tf.sub(tf.reduce_sum(bc),tf.reduce_sum(ad)))
+            imags = tf.square(tf.subtract(tf.reduce_sum(bc),tf.reduce_sum(ad)))
             norm = tf.add(reals,imags)
         return norm
         
-    def get_inner_product_2D(self,psi1,psi2):
-        #Take 2 states psi1,psi2, calculate their overlap, for arbitrary number of vectors
-        # psi1 and psi2 are shaped as (2*state_num, number of vectors)
+    def get_loss_list(self,psi1,psi2):
         state_num=self.sys_para.state_num
         
         psi_1_real = (psi1[0:state_num,:])
@@ -336,14 +336,38 @@ class TensorflowState:
         psi_2_real = (psi2[0:state_num,:])
         psi_2_imag = (psi2[state_num:2*state_num,:])
         # psi1 has a+ib, psi2 has c+id, we wanna get Sum ((ac+bd) + i (bc-ad)) magnitude
+        
+        ac = tf.reduce_sum(tf.multiply(psi_1_real,psi_2_real),0)
+        bd = tf.reduce_sum(tf.multiply(psi_1_imag,psi_2_imag),0)
+        bc = tf.reduce_sum(tf.multiply(psi_1_imag,psi_2_real),0)
+        ad = tf.reduce_sum(tf.multiply(psi_1_real,psi_2_imag),0)
+        ac_bd = tf.square(tf.add(ac,bd))
+        bc_ad = tf.square(tf.subtract(bc,ad))
+
+        loss_list = tf.add(ac_bd,bc_ad)
+        return loss_list
+        
+    def get_inner_product_2D(self,psi1,psi2):
+        #Take 2 states psi1,psi2, calculate their overlap, for arbitrary number of vectors
+        # psi1 and psi2 are shaped as (2*state_num, number of vectors)
+        state_num=self.sys_para.state_num
+        
+        
+        psi_1_real = (psi1[0:state_num,:])
+        psi_1_imag = (psi1[state_num:2*state_num,:])
+        psi_2_real = (psi2[0:state_num,:])
+        psi_2_imag = (psi2[state_num:2*state_num,:])
+        # psi1 has a+ib, psi2 has c+id, we wanna get Sum ((ac+bd) + i (bc-ad)) magnitude
         with tf.name_scope('inner_product'):
-            ac = tf.reduce_sum(tf.mul(psi_1_real,psi_2_real),0)
-            bd = tf.reduce_sum(tf.mul(psi_1_imag,psi_2_imag),0)
-            bc = tf.reduce_sum(tf.mul(psi_1_imag,psi_2_real),0)
-            ad = tf.reduce_sum(tf.mul(psi_1_real,psi_2_imag),0)
-            reals = tf.reduce_sum(tf.square(tf.add(ac,bd))) # first trace inner product of all vectors, then squared
-            imags = tf.reduce_sum(tf.square(tf.sub(bc,ad)))
-            #norm = (tf.add(reals,imags))/(len(self.sys_para.states_concerned_list)**2)
+            ac = tf.reduce_sum(tf.multiply(psi_1_real,psi_2_real),0)
+            bd = tf.reduce_sum(tf.multiply(psi_1_imag,psi_2_imag),0)
+            bc = tf.reduce_sum(tf.multiply(psi_1_imag,psi_2_real),0)
+            ad = tf.reduce_sum(tf.multiply(psi_1_real,psi_2_imag),0)
+            
+            ac_bd = tf.square(tf.add(ac,bd))
+            bc_ad = tf.square(tf.subtract(bc,ad))
+            reals = tf.reduce_sum(ac_bd) # first trace inner product of all vectors, then squared
+            imags = tf.reduce_sum(bc_ad)
             norm = (tf.add(reals,imags))/(tf.cast(self.num_vecs,tf.float32))
         return norm
     
@@ -358,13 +382,13 @@ class TensorflowState:
         psi_2_imag = (psi2[state_num:2*state_num,:])
         # psi1 has a+ib, psi2 has c+id, we wanna get Sum ((ac+bd) + i (bc-ad)) magnitude
         with tf.name_scope('inner_product'):
-            ac = tf.reduce_sum(tf.mul(psi_1_real,psi_2_real),0)
-            bd = tf.reduce_sum(tf.mul(psi_1_imag,psi_2_imag),0)
-            bc = tf.reduce_sum(tf.mul(psi_1_imag,psi_2_real),0)
-            ad = tf.reduce_sum(tf.mul(psi_1_real,psi_2_imag),0)
+            ac = tf.reduce_sum(tf.multiply(psi_1_real,psi_2_real),0)
+            bd = tf.reduce_sum(tf.multiply(psi_1_imag,psi_2_imag),0)
+            bc = tf.reduce_sum(tf.multiply(psi_1_imag,psi_2_real),0)
+            ad = tf.reduce_sum(tf.multiply(psi_1_real,psi_2_imag),0)
             reals = tf.reduce_sum(tf.square(tf.reduce_sum(tf.add(ac,bd),1)))
             # first trace inner product of all vectors, then squared, then sum contribution of all time steps
-            imags = tf.reduce_sum(tf.square(tf.reduce_sum(tf.sub(bc,ad),1)))
+            imags = tf.reduce_sum(tf.square(tf.reduce_sum(tf.subtract(bc,ad),1)))
             norm = (tf.add(reals,imags))/(len(self.sys_para.states_concerned_list)**2)
         return norm
     
@@ -380,6 +404,9 @@ class TensorflowState:
             self.loss = tf.constant(0.0, dtype = tf.float32)
             self.final_state = self.inter_vecs_packed[:,self.sys_para.steps,:]
             self.loss = 1-self.get_inner_product_2D(self.final_state,self.target_vecs)
+            if self.sys_para.expect:
+                self.loss = - tf.abs(tf.reduce_sum(tf.subtract(self.expectations[0,:,0] , self.expectations[1,:,0])))
+            self.loss_list = self.get_loss_list(self.final_state,self.target_vecs)
             self.unitary_scale = self.get_inner_product_2D(self.final_state,self.final_state)
             
     
@@ -395,17 +422,17 @@ class TensorflowState:
         #Here we extract the gradients of the pulses
         self.grad = self.opt.compute_gradients(self.reg_loss)
 
-        self.grad_pack = tf.pack([g for g, _ in self.grad])
+        self.grad_pack = tf.stack([g for g, _ in self.grad])
         self.var = [v for _,v in self.grad]
         
         self.grads =[tf.nn.l2_loss(g) for g, _ in self.grad]
-        self.grad_squared = tf.reduce_sum(tf.pack(self.grads))
+        self.grad_squared = tf.reduce_sum(tf.stack(self.grads))
         
         
         self.gradients =[g for g, _ in self.grad]
         self.avg_grad = tf.placeholder(tf.float32, shape = [1,len(self.sys_para.ops),self.sys_para.steps])
         
-        self.new_grad = zip(tf.unpack(self.avg_grad),self.var)
+        self.new_grad = zip(tf.unstack(self.avg_grad),self.var)
         #self.new_grad = self.grad
         
         if self.sys_para.traj:
@@ -453,16 +480,21 @@ class TensorflowState:
         self.norms = tf.ones([self.num_vecs],dtype = tf.float32)
         self.r=self.get_random(self.start,self.end,self.num_vecs)
         jumps=tf.zeros([self.num_vecs])
-        
+        self.operator = self.tf_c_ops[0] # temporary
+        self.expects = []
         self.inter_vecs_list=[]
         self.inter_vecs_list.append(self.old_psi)
         self.all_jumps= []
+        self.all_norms = []
+        self.all_norms.append(self.norms)
         
         for ii in np.arange(0,self.sys_para.steps):
             self.old_psi = self.new_psi        
             self.new_psi = matvecexp_op(self.H_weights[:,ii],self.tf_matrix_list,self.old_psi)
             new_norms = tf.reshape(self.get_norms(self.new_psi),[self.num_vecs])
-            self.norms = tf.mul(self.norms,new_norms)
+            
+            self.norms = tf.multiply(self.norms,new_norms)
+            self.all_norms.append(self.norms)
             cond= tf.less(self.norms,self.r)
             self.a=tf.where(cond)
             
@@ -479,7 +511,7 @@ class TensorflowState:
                 for kk in range (2*state_num):
                     idx.append(index + kk*vecs)
                     
-                vector = tf.gather(tf.reshape(old,[2*state_num*self.num_vecs]),idx)
+                vector = tf.gather(tf.reshape(new,[2*state_num*self.num_vecs]),idx)
                 #vector = tf.gather(tf.transpose(old),index)
                 
                 
@@ -494,13 +526,13 @@ class TensorflowState:
 
                         temp=tf.matmul(tf.transpose(tf.reshape(vector,[2*state_num,1])),self.tf_cdagger_c[ii,:,:])
                         temp2=tf.matmul(temp,tf.reshape(vector,[2*state_num,1])) #get the jump expectation value
-                        weights=tf.concat(0,[weights,tf.reshape(temp2,[1])])
+                        weights=tf.concat([weights,tf.reshape(temp2,[1])],0)
                     weights=tf.abs(weights/tf.reduce_sum(tf.abs(weights))) #convert them to probabilities
 
                     for jj in range (len(self.sys_para.c_ops)):
                         #create a list of their summed probabilities
                         s=s+weights[jj]
-                        sums=tf.concat(0,[sums,tf.reshape(s,[1])])
+                        sums=tf.concat([sums,tf.reshape(s,[1])],0)
 
                     r2 = tf.random_uniform([1],0,1)
                     #tensorflow conditional graphing, checks for the first time a summed probability exceeds the random number
@@ -529,19 +561,20 @@ class TensorflowState:
                     indices.append([jj,index])
                
                 values = delta
-                shape = tf.cast(tf.pack([2*self.sys_para.state_num,self.num_vecs]),tf.int64)
+                shape = tf.cast(tf.stack([2*self.sys_para.state_num,self.num_vecs]),tf.int64)
                 Delta = tf.SparseTensor(indices, values, shape)
                 new = new + tf.sparse_tensor_to_dense(Delta)
                 
                 
                 values = tf.reshape(1 - tf.gather(norms,index),[1])
-                shape = tf.cast(tf.pack([self.num_vecs]),tf.int64)
+                shape = tf.cast(tf.stack([self.num_vecs]),tf.int64)
                 Delta_norm = tf.SparseTensor(tf.reshape(index,[1,1]), values, shape)
                 norms = norms + tf.sparse_tensor_to_dense(Delta_norm)
                
-                new_random = self.get_one_random(self.start, self.end,index)
+                #new_random = self.get_one_random(self.start, self.end,index)
+                new_random =tf.random_uniform([1],0,1)
                 values = tf.reshape(new_random - tf.gather(randoms,index),[1])
-                #shape = tf.pack([self.num_vecs])
+                #shape = tf.stack([self.num_vecs])
                 Delta_norm = tf.SparseTensor(tf.reshape(index,[1,1]), values, shape)
                 randoms = randoms + tf.sparse_tensor_to_dense(Delta_norm)
                 
@@ -556,11 +589,21 @@ class TensorflowState:
             self.new_psi = self.normalize(self.new_psi)
             
             self.inter_vecs_list.append(self.new_psi)
-        self.inter_vecs_packed = tf.pack(self.inter_vecs_list, axis=1)
+            if self.sys_para.expect:
+                self.expects.append(self.expect(self.expect_op, self.new_psi))
+        self.inter_vecs_packed = tf.stack(self.inter_vecs_list, axis=1)
         self.inter_vecs = self.inter_vecs_packed
-        #self.inter_vecs_packed.set_shape([2*self.sys_para.state_num,self.sys_para.steps,tf.pack(self.num_vecs)] )
-        #self.inter_vecs = tf.unpack(self.inter_vecs_packed, axis = 2)
-        #self.indices = tf.pack(self.indices)
+        self.all_norms = tf.stack(self.all_norms)
+        if self.sys_para.expect:
+            self.expectations = tf.stack(self.expects, axis=1)
+        else:
+            self.expectations = 0
+        
+        #####
+        
+        #self.inter_vecs_packed.set_shape([2*self.sys_para.state_num,self.sys_para.steps,self.num_vecs] )
+        #self.inter_vecs2 = tf.unstack(self.inter_vecs_packed, axis = 2)
+        #self.indices = tf.stack(self.indices)
         
         
         
@@ -571,14 +614,41 @@ class TensorflowState:
         #psi0 = inter_vec
        
         
-        self.all_jumps = tf.pack(self.all_jumps)
+        self.all_jumps = tf.stack(self.all_jumps)
         self.jumps.append(jumps)
-        self.jumps = tf.pack(self.jumps)
-        #self.norms_pc = tf.pack(self.norms)
+        self.jumps = tf.stack(self.jumps)
+        #self.norms_pc = tf.stack(self.norms)
         
         
         return psi0
-     
+    def get_avgd_inner_product (self, psi1, psi2, start, end):
+        state_num=self.sys_para.state_num
+        
+        
+        psi_1_real = (psi1[0:state_num,start:end])
+        psi_1_imag = (psi1[state_num:2*state_num,start:end])
+        psi_2_real = (psi2[0:state_num,start:end])
+        psi_2_imag = (psi2[state_num:2*state_num,start:end])
+        # psi1 has a+ib, psi2 has c+id, we wanna get Sum ((ac+bd) + i (bc-ad)) magnitude
+        with tf.name_scope('inner_product'):
+            ac = tf.reduce_sum(tf.multiply(psi_1_real,psi_2_real),0)
+            bd = tf.reduce_sum(tf.multiply(psi_1_imag,psi_2_imag),0)
+            bc = tf.reduce_sum(tf.multiply(psi_1_imag,psi_2_real),0)
+            ad = tf.reduce_sum(tf.multiply(psi_1_real,psi_2_imag),0)
+            
+            ac_bd = tf.add(ac,bd)
+            bc_ad = tf.subtract(bc,ad)
+            reals = tf.reduce_sum(ac_bd)/tf.cast((end-start), tf.float32) # first trace inner product of all vectors, then squared
+            imags = tf.reduce_sum(bc_ad)/tf.cast((end-start), tf.float32)
+            
+        return reals, imags
+        
+    def expect (self, op, psis):
+        psis2 = tf.matmul(tf.cast(op,tf.float32),psis)
+        expect1 = self.get_avgd_inner_product (psis, psis2, 0, self.num_trajs[0])
+        expect2 = self.get_avgd_inner_product (psis, psis2, self.num_trajs[0], self.num_trajs[0] + self.num_trajs[1])
+        return expect1, expect2
+        
     def normalize(self,psi):
         state_num=self.sys_para.state_num
         new_norms = tf.reshape(self.get_norms(psi),[self.num_vecs])
@@ -586,7 +656,7 @@ class TensorflowState:
         x = []
         for ii in range (2*state_num):
             x.append(weights)
-        return tf.mul(psi,tf.pack(x))
+        return tf.multiply(psi,tf.stack(x))
             
     
             
@@ -607,7 +677,7 @@ class TensorflowState:
         for jj in range (len(self.sys_para.initial_vectors)):
             #create a list of their summed probabilities
             s=s+self.num_trajs[jj]
-            sums=tf.concat(0,[sums,tf.reshape(s,[1])])
+            sums=tf.concat([sums,tf.reshape(s,[1])],0)
 
         r2 = tf.cast(index,tf.int32)
         rvector=r2 * tf.ones_like(sums)
@@ -628,7 +698,7 @@ class TensorflowState:
             if rand == []:
                 rand = new
             else:
-                rand = tf.concat(0,[rand,new])
+                rand = tf.concat([rand,new],0)
             ii = ii+1
            
         #rand=tf.random_uniform([length],start,end)
@@ -657,7 +727,7 @@ class TensorflowState:
             else:
                 if self.sys_para.traj:
                     self.init_trajectory()
-                    self.jumps = tf.pack(self.jumps)
+                    self.jumps = tf.stack(self.jumps)
                 else:
                     self.init_tf_inter_vector_state()
             self.init_training_loss()

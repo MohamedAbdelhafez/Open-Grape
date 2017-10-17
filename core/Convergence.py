@@ -138,6 +138,8 @@ class Convergence:
 
         if self.sys_para.state_transfer:
             i2 = i2-1
+        if self.anly.expects != []:
+            i2 = i2 + 1
 
         gs = gridspec.GridSpec(3+i1+i2+num_graphs, 2)
         
@@ -147,15 +149,19 @@ class Convergence:
             
             
           
-            plt.subplot(gs[index, :],title='Error = %1.2e; Other errors = %1.2e; Unitary Metric: %.5f; Runtime: %.1fs; Estimated Remaining Runtime: %.1fh' % (self.last_cost, self.last_reg_cost-self.last_cost,
-                                                                                                   self.anly.tf_unitary_scale.eval(feed_dict = self.anly.feed_dict),
+            plt.subplot(gs[index, :],title='Error = %1.2e; Other errors = %1.2e;  Runtime: %.1fs; Estimated Remaining Runtime: %.1fh' % (self.last_cost, self.last_reg_cost-self.last_cost,
+                                                                                                   
                                                                                                  
                                                                                                   self.runtime,
                                                                                                   self.estimated_runtime,)+", jump trajectories: "+str(self.j))
             
             index +=1
-            plt.plot(np.array(self.iterations),np.array(self.costs),'bx-',label='Fidelity Error')
-            plt.plot(np.array(self.iterations),np.array(self.reg_costs),'go-',label='All Penalties')
+            if self.sys_para.expect:
+                modifier = -1
+            else:
+                modifier = +1
+            plt.plot(np.array(self.iterations),modifier*np.array(self.costs),'bx-',label='Fidelity Error')
+            plt.plot(np.array(self.iterations),modifier*np.array(self.reg_costs),'go-',label='All Penalties')
             plt.ylabel('Error')
             plt.xlabel('Iteration')
             plt.yscale('log')
@@ -203,7 +209,7 @@ class Convergence:
                 plt.subplot(gs[index+ii, :],title="Evolution")
 
                 pop_inter_vecs = inter_vecs[ii]
-                
+                np.save('tf_vecs',pop_inter_vecs)
                 self.plot_inter_vecs_general(pop_inter_vecs,0)
             '''
 
@@ -214,7 +220,17 @@ class Convergence:
                 self.plot_inter_vecs_general(pop_inter_vecs,self.concerned[ii])
               '''  
                 
-        
+        if self.anly.expects != []:
+            plt.subplot(gs[-1, :],title="Expectation")
+            plt.plot(np.array([self.sys_para.dt* ii for ii in range(self.sys_para.steps)]),np.array(self.anly.expects[0,:,0]),label="Real_g")
+            plt.plot(np.array([self.sys_para.dt* ii for ii in range(self.sys_para.steps)]),np.array(self.anly.expects[0,:,1]),label="Imag_g")
+            plt.plot(np.array([self.sys_para.dt* ii for ii in range(self.sys_para.steps)]),np.array(self.anly.expects[1,:,0]),label="Real_e")
+            plt.plot(np.array([self.sys_para.dt* ii for ii in range(self.sys_para.steps)]),np.array(self.anly.expects[1,:,1]),label="Imag_e")
+            plt.title('Expectaion of Operator')
+            
+            plt.ylabel('Expectation Value')
+            plt.xlabel('Time ('+ self.time_unit+')')
+            plt.legend()
         fig = plt.gcf()
         if self.sys_para.state_transfer:
             plots = 2

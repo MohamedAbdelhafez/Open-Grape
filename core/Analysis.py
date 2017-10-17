@@ -7,7 +7,7 @@ from helper_functions.datamanagement import H5File
 
 class Analysis:
     
-    def __init__(self, sys_para,tf_final_state, tf_ops_weight, tf_unitary_scale, tf_inter_vecs, tf_feed_dict,iter_num = 0 ):
+    def __init__(self, sys_para,tf_final_state, tf_ops_weight, tf_unitary_scale, tf_inter_vecs, tf_feed_dict,avg_inter_vecs = None, iter_num = 0, expects = [] ):
         self.sys_para = sys_para
         self.tf_final_state = tf_final_state
         self.tf_ops_weight = tf_ops_weight
@@ -15,6 +15,8 @@ class Analysis:
         self.tf_inter_vecs = tf_inter_vecs
         self.iter_num = iter_num
         self.feed_dict = tf_feed_dict
+        self.avg_inter_vecs = avg_inter_vecs
+        self.expects = expects
 	self.this_dir = os.path.dirname(__file__)    
 
     def RtoCMat(self,M):
@@ -60,43 +62,45 @@ class Analysis:
         ii=0
         
         #inter_vecs = tf.pack(self.tf_inter_vecs).eval(feed_dict=self.feed_dict)
-        inter_vecs = self.tf_inter_vecs.eval(feed_dict = self.feed_dict)
+        if (self.avg_inter_vecs == None):
+            inter_vecs = self.tf_inter_vecs.eval(feed_dict = self.feed_dict)
         
-        shape = np.shape(inter_vecs)
-        #print shape
-        if self.sys_para.save:
-            with H5File(self.sys_para.file_path) as hf:
-                hf.append('inter_vecs_raw_real',np.array(inter_vecs[0:state_num,:,:]))
-                hf.append('inter_vecs_raw_imag',np.array(inter_vecs[state_num:2*state_num,:,:]))
-                
-        for kk in range (shape[-1]):
-            inter_vec_real = (inter_vecs[0:state_num,:,kk])
-            inter_vec_imag = (inter_vecs[state_num:2*state_num,:,kk])
-            inter_vec_c = inter_vec_real+1j*inter_vec_imag
-            
-            if self.sys_para.is_dressed:
+            shape = np.shape(inter_vecs)
+            if self.sys_para.save:
+                with H5File(self.sys_para.file_path) as hf:
+                    hf.append('inter_vecs_raw_real',np.array(inter_vecs[0:state_num,:,:]))
+                    hf.append('inter_vecs_raw_imag',np.array(inter_vecs[state_num:2*state_num,:,:]))
 
-                dressed_vec_c= np.dot(np.transpose(v_sorted),inter_vec_c)
-                
-                inter_vec_mag_squared = np.square(np.abs(dressed_vec_c))
-                
-                inter_vec_real = np.real(dressed_vec_c)
-                inter_vec_imag = np.imag(dressed_vec_c)
-                
-            else:
-                inter_vec_mag_squared = np.square(np.abs(inter_vec_c))
-                
-                inter_vec_real = np.real(inter_vec_c)
-                inter_vec_imag = np.imag(inter_vec_c)
-                
-                
-            inter_vecs_mag_squared.append(inter_vec_mag_squared)
-            
-            inter_vecs_real.append(inter_vec_real)
-            inter_vecs_imag.append(inter_vec_imag)
-            
-            ii+=1
-        
+            for kk in range (shape[-1]):
+                inter_vec_real = (inter_vecs[0:state_num,:,kk])
+                inter_vec_imag = (inter_vecs[state_num:2*state_num,:,kk])
+                inter_vec_c = inter_vec_real+1j*inter_vec_imag
+
+                if self.sys_para.is_dressed:
+
+                    dressed_vec_c= np.dot(np.transpose(v_sorted),inter_vec_c)
+
+                    inter_vec_mag_squared = np.square(np.abs(dressed_vec_c))
+
+                    inter_vec_real = np.real(dressed_vec_c)
+                    inter_vec_imag = np.imag(dressed_vec_c)
+
+                else:
+                    inter_vec_mag_squared = np.square(np.abs(inter_vec_c))
+
+                    inter_vec_real = np.real(inter_vec_c)
+                    inter_vec_imag = np.imag(inter_vec_c)
+
+
+                inter_vecs_mag_squared.append(inter_vec_mag_squared)
+
+                inter_vecs_real.append(inter_vec_real)
+                inter_vecs_imag.append(inter_vec_imag)
+
+                ii+=1
+        else:
+            inter_vecs_mag_squared = self.avg_inter_vecs
+
         
         '''    
         if self.sys_para.save:
@@ -135,7 +139,7 @@ class Analysis:
         if self.sys_para.save:
             with H5File(self.sys_para.file_path) as hf:
                 hf.append('inter_vecs_mag_squared',np.array(inter_vecs_mag_squared))
-                hf.append('inter_vecs_real',np.array(inter_vecs_real))
-                hf.append('inter_vecs_imag',np.array(inter_vecs_imag))
+                #hf.append('inter_vecs_real',np.array(inter_vecs_real))
+                #hf.append('inter_vecs_imag',np.array(inter_vecs_imag))
         
         return inter_vecs_mag_squared

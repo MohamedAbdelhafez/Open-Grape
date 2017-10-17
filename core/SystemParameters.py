@@ -10,7 +10,7 @@ from helper_functions.datamanagement import H5File
 class SystemParameters:
 
     def __init__(self,H0,Hops,Hnames,U,U0,total_time,steps,states_concerned_list,dressed_info,maxA, draw,initial_guess, show_plots,Unitary_error,state_transfer,no_scaling,reg_coeffs, save, file_path, Taylor_terms,use_gpu,use_inter_vecs,sparse_H,
-                sparse_U,sparse_K, c_ops,trajectories):
+                sparse_U,sparse_K, c_ops,trajectories, do_all, expect_op):
         # Input variable
         self.sparse_U = sparse_U
         self.sparse_H = sparse_H
@@ -36,7 +36,11 @@ class SystemParameters:
         self.trajectories = trajectories
         self.c_ops = c_ops
         self.traj = False
-        
+        self.do_all = do_all
+        self.expect_op = expect_op
+        self.expect = False
+        if self.expect_op != []:
+            self.expect = True
 
 
         if initial_guess is not None:
@@ -59,7 +63,8 @@ class SystemParameters:
         self.is_dressed = False
         self.U0_c = U0
         self.initial_unitary = c_to_r_mat(U0) #CtoRMat is converting complex matrices to their equivalent real (double the size) matrices
-        
+        if self.expect:
+            self.expect_op = c_to_r_mat(self.expect_op)
         
         if draw is not None:
             self.draw_list = draw[0]
@@ -92,14 +97,22 @@ class SystemParameters:
             self.target_unitary = c_to_r_mat(U)
         else:
             self.target_vectors=[]
+            self.target_vectors_c=[]
 
             for target_vector_c in U:
                 self.target_vector = c_to_r_vec(target_vector_c)
                 self.target_vectors.append(self.target_vector)
-                
+                self.target_vectors_c.append(target_vector_c)
+        if self.save:
+            with H5File(self.file_path) as hf:
+                hf.add('target_vectors_c',data=np.array(self.target_vectors_c))  
         if self.traj:
             self.cdaggerc=[]
             self.c_ops_real=[]
+            if self.save:
+                with H5File(self.file_path) as hf:
+                    hf.add('c_ops',data=self.c_ops)
+                   
             #ceating the effective hamiltonian that describes the evolution of states if no jumps occur
             for ii in range (len(self.c_ops)):
                 cdaggerc_c = np.dot(np.transpose(np.conjugate(self.c_ops[ii])),self.c_ops[ii])
@@ -149,7 +162,7 @@ class SystemParameters:
         #given our hamiltonians and a number of scaling/squaring, we determine the number of Taylor terms
         
 
-        exp_t = 20 #maximum
+        exp_t = 30 #maximum
 
         H=self.H0_c
         U_f = self.U0_c
