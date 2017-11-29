@@ -6,6 +6,7 @@ import time
 from scipy.optimize import minimize
 from helper_functions.grape_functions import *
 import matplotlib.pyplot as plt
+import sys
 
 from helper_functions.datamanagement import H5File
 
@@ -21,10 +22,11 @@ class run_session:
         self.method = method.upper()
         self.show_plots = show_plots
         self.target = False
+        gpu_options = tf.GPUOptions(allow_growth=True)
         if not use_gpu:
             config = tf.ConfigProto(device_count = {'GPU': 0})
         else:
-            config = None
+            config = tf.ConfigProto(gpu_options = gpu_options)
         
         with tf.Session(graph=graph, config = config) as self.session:
             
@@ -108,14 +110,22 @@ class run_session:
             learning_rate = float(self.conv.rate) * np.exp(-float(self.iterations) / self.conv.learning_rate_decay)
             
             
-            if self.sys_para.traj and self.do_all:
+            if self.sys_para.traj and self.sys_para.expect and self.do_all:
                 #Do all trajectories together
                 num_psi0 = len(self.sys_para.initial_vectors)
                 vec_trajs = self.sys_para.trajectories * np.ones([num_psi0])
                 self.j = 0
                 self.feed_dict = {self.tfs.learning_rate: 0, self.tfs.start: (np.zeros([num_psi0])), self.tfs.end: (np.ones([num_psi0])),self.tfs.num_trajs:vec_trajs}
-                self.rl,self.grad_pack, self.norms,self.l,inter_vecs,all_norms, expects = self.session.run(
-                [self.tfs.reg_loss,self.tfs.grad_pack,self.tfs.norms,self.tfs.loss,self.tfs.inter_vecs,self.tfs.all_norms, self.tfs.expectations], feed_dict=self.feed_dict)
+                self.rl,self.grad_pack, self.norms,self.l,inter_vecs,all_norms, expects, linear, lineard, quad = self.session.run(
+                [self.tfs.reg_loss,self.tfs.grad_pack,self.tfs.norms,self.tfs.loss,self.tfs.inter_vecs,self.tfs.all_norms, self.tfs.expectations, self.tfs.Il,self.tfs.Ild,self.tfs.quad ], feed_dict=self.feed_dict)
+                #print np.shape(self.grad_pack)
+                #print np.shape(lineard)
+                #print (np.max(np.abs((-2*linear*lineard - quad )/quad)), np.mean(np.abs((-2*linear*lineard - quad )/quad)))
+                #print (-2*linear*lineard)
+                #print (quad)
+                #print (-2*linear*lineard)
+                #print (self.grad_pack[0])
+                
                 self.inter_vecs = inter_vecs
                 
                 self.expects = expects
@@ -127,7 +137,8 @@ class run_session:
                 
             if self.sys_para.traj and not self.do_all:
                 self.traj_num = self.sys_para.trajectories
-                max_traj = int(40000/len(self.sys_para.H0))
+                max_traj = int(250000*250/(self.sys_para.steps * len(self.sys_para.H0)))
+                #max_traj = int(250000*250/(2*self.sys_para.steps * len(self.sys_para.H0)))
                 #max_traj = 1
                 
                 num_psi0 = len(self.sys_para.initial_vectors)
@@ -135,6 +146,10 @@ class run_session:
                 start = (np.zeros([num_psi0]))
                 end  = (np.zeros([num_psi0]))
                 self.l = 0
+                self.ls = [0,0]
+                self.gs = []
+                self.expects_no_jump = []
+                self.expects_jump = []
                 self.inter_vecs_no_jump = []
                 self.inter_vecs_jump = []
                 
@@ -142,18 +157,40 @@ class run_session:
                     vec_trajs = np.zeros([num_psi0])
                     vec_trajs[kk] = 1
                     self.feed_dict = {self.tfs.learning_rate: 0, self.tfs.start: start, self.tfs.end: end,self.tfs.num_trajs:vec_trajs}
-                    self.grad_pack, self.norms,self.loss,inter_vecs,all_norms = self.session.run(
+                    if not self.sys_para.expect:
+                        self.grad_pack, self.norms,self.loss,inter_vecs,all_norms = self.session.run(
                 [self.tfs.grad_pack,self.tfs.norms,self.tfs.loss,self.tfs.inter_vecs,self.tfs.all_norms], feed_dict=self.feed_dict)
                     #print (all_norms)
-                    self.inter_vecs_no_jump.append(inter_vecs)
-                    
-                    
-                    if kk ==0:
-                        self.grad_av = np.rint(self.norms* self.traj_num)  * self.grad_pack / (num_psi0*self.traj_num)
+                        self.inter_vecs_no_jump.append(inter_vecs)
                     else:
-                        self.grad_av = self.grad_av + (self.norms * self.grad_pack / num_psi0)
+                        
+                        self.norms, expects, l1d,l2d,  quad, l1, l2, inter_vecs = self.session.run(
+                [self.tfs.norms, self.tfs.expectations, self.tfs.Il1d, self.tfs.Il2d,self.tfs.quad, self.tfs.Il1, self.tfs.Il2, self.tfs.inter_vecs], feed_dict=self.feed_dict)
+                        self.inter_vecs_no_jump.append(inter_vecs)
+                        self.expects_no_jump.append(expects[:,kk,0] * self.norms )
+                        
+                        if kk == 0:
+                            lin = l1
+                            self.grad_pack = l1d
+                        else:
+                            lin = l2
+                            self.grad_pack = l2d
+                        
+                            
+                          
                     
-                    self.l = self.l + np.rint(self.norms* self.traj_num)  * self.loss / (num_psi0* self.traj_num)
+                    
+                    
+                    if not self.sys_para.expect:
+                        self.l = self.l + np.rint(self.norms* self.traj_num)  * self.loss / (num_psi0* self.traj_num)
+                        if kk ==0:
+                            self.grad_av = np.rint(self.norms* self.traj_num)  * self.grad_pack / (num_psi0*self.traj_num)
+                        else:
+                            self.grad_av = self.grad_av + (self.norms * self.grad_pack / num_psi0)
+                    else:
+                        self.ls[kk] = self.ls[kk] + np.rint(self.norms* self.traj_num)  * lin / (self.traj_num)
+                        self.gs.append(np.rint(self.norms* self.traj_num)  * self.grad_pack / (self.traj_num))
+                        
                     needed_traj[kk] = self.traj_num-np.rint(self.norms* self.traj_num) 
                     start[kk] = self.norms
                     end[kk] = 1.0
@@ -162,46 +199,82 @@ class run_session:
                 self.needed = needed_traj
                 jump_traj = np.sum(needed_traj)
                 if jump_traj > 0:
-                    
+                    e0 = np.zeros(np.shape(expects[:,0,0]))
+                    e1 = np.zeros(np.shape(expects[:,0,0]))
                     self.divided_branches = self.divide(needed_traj,max_traj)
+                    self.time = time.time()
                     for ii in range (len(self.divided_branches)):
-                        needed_traj = self.divided_branches[ii]
                         
+                        sys.stdout.write('\r'+' Iteration: ' +str(self.iterations) + ": Running batch #" +str(ii+1)+" out of "+str(len(self.divided_branches))+ " with "+str(self.divided_branches[ii])+" jump trajectories, time for last batch is "+str(time.time()-self.time))
+                        self.time = time.time()
+                        sys.stdout.flush()
+                        needed_traj = self.divided_branches[ii]
                         
                         #print "Doing " + str(needed_traj) + " jump trajectories with start: " + str(start)+ " and end: " + str(end)
                           
                         self.feed_dict = {self.tfs.learning_rate: 0, self.tfs.start: start, self.tfs.end: end,self.tfs.num_trajs:needed_traj}
-                        
-                        self.grad_pack,l,self.r, self.js,self.loss_list, inter_vecs = self.session.run([self.tfs.grad_pack,self.tfs.loss,self.tfs.r,self.tfs.all_jumps,self.tfs.loss_list, self.tfs.inter_vecs], feed_dict = self.feed_dict)
-                        
-                        self.loss_list = np.ones(len(self.loss_list)) - self.loss_list
-                        avg_jump_loss = np.mean(self.loss_list)
-                        
-                        self.l = self.l + (np.sum(needed_traj)/(num_psi0*self.sys_para.trajectories)) * avg_jump_loss
-                        self.grad_av = self.grad_av + (np.sum(needed_traj)/(num_psi0*self.sys_para.trajectories)) * self.grad_pack
-                        if ii == 0:
-                            self.inter_vecs_jump.append(inter_vecs)
-                        else:
-                            np.concatenate(self.inter_vecs_jump[0],inter_vecs, axis = 2)
-                            self.inter_vecs_jump = []
-                            self.inter_vecs_jump.append(inter_vecs)
+                        if self.sys_para.expect:
+                            self.rl,self.grad_pack, self.norms,self.l,inter_vecs,all_norms, expects, linear,  quad, l1, l2, l1d, l2d = self.session.run(
+                [self.tfs.reg_loss,self.tfs.grad_pack,self.tfs.norms,self.tfs.loss,self.tfs.inter_vecs,self.tfs.all_norms, self.tfs.expectations, self.tfs.Il,self.tfs.quad, self.tfs.Il1, self.tfs.Il2, self.tfs.Il1d, self.tfs.Il2d], feed_dict=self.feed_dict)
                             
+                            
+                            
+                            
+                            if needed_traj[0] > 0 :
+                                self.ls[0] = self.ls[0] + (needed_traj[0]/(self.sys_para.trajectories)) * l1
+                                self.gs[0] = self.gs[0] + (needed_traj[0]/(self.sys_para.trajectories)) * l1d
+                                e0 = e0 + needed_traj[0]*expects[:,0,0]/(self.sys_para.trajectories)
+                            if needed_traj[1] > 0 :
+                                self.ls[1] = self.ls[1] + (needed_traj[1]/(self.sys_para.trajectories)) * l2
+                                self.gs[1] = self.gs[1] + (needed_traj[1]/(self.sys_para.trajectories)) * l2d
+                                e1 = e1 + needed_traj[1]*expects[:,1,0]/(self.sys_para.trajectories)
+                            
+                            if ii == 0:
+                                self.inter_vecs_jump.append(inter_vecs)
+                                
+                            else:
+                                inter_vecs = np.concatenate((self.inter_vecs_jump[0],inter_vecs), axis = 2)
+                                self.inter_vecs_jump = []
+                                self.inter_vecs_jump.append(inter_vecs)
+                                
+                                
+                        if not self.sys_para.expect:
+                            self.grad_pack,l,self.r, self.js,self.loss_list, inter_vecs = self.session.run([self.tfs.grad_pack,self.tfs.loss,self.tfs.r,self.tfs.all_jumps,self.tfs.loss_list, self.tfs.inter_vecs], feed_dict = self.feed_dict)
+
+                            self.loss_list = np.ones(len(self.loss_list)) - self.loss_list
+                            avg_jump_loss = np.mean(self.loss_list)
+
+                            self.l = self.l + (np.sum(needed_traj)/(num_psi0*self.sys_para.trajectories)) * avg_jump_loss
+                            self.grad_av = self.grad_av + (np.sum(needed_traj)/(num_psi0*self.sys_para.trajectories)) * self.grad_pack
+                            if ii == 0:
+                                self.inter_vecs_jump.append(inter_vecs)
+                            else:
+                                inter_vecs = np.concatenate((self.inter_vecs_jump[0],inter_vecs), axis = 2)
+                                self.inter_vecs_jump = []
+                                self.inter_vecs_jump.append(inter_vecs)
+                    
                 #print "After Jumps: "+str(np.sum(np.square(self.grad_av)))
-                learning_rate = float(self.conv.rate) * np.exp(-float(self.iterations) / self.conv.learning_rate_decay)
-                #print "statistical error: " + str((np.std(self.loss_list1)/np.sqrt(self.traj_num))/self.l)
+                if self.sys_para.expect:
+                    self.expects_jump.append(e0)
+                    self.expects_jump.append(e1)
+                    self.l = np.square(self.ls[0] + self.ls[1])
+                    self.grad_av = np.reshape(-2 * self.ls[0] * self.gs[0] -2 * self.ls[1] * self.gs[1] , np.shape(self.grad_pack))
+                    self.rl = self.l
                 
+                learning_rate = float(self.conv.rate) * np.exp(-float(self.iterations) / self.conv.learning_rate_decay)
+            #print "statistical error: " + str((np.std(self.loss_list1)/np.sqrt(self.traj_num))/self.l)
+
                 self.feed_dict = {self.tfs.learning_rate: learning_rate, self.tfs.start: (np.zeros([num_psi0])), self.tfs.end: (np.zeros([num_psi0])),self.tfs.num_trajs:np.ones([num_psi0]), self.tfs.avg_grad: self.grad_av}
                 _ = self.session.run([self.tfs.optimizer],feed_dict = self.feed_dict)
-                
+
                 l,self.rl,self.g_squared,self.metric, final, target= self.session.run([self.tfs.loss, self.tfs.reg_loss,self.tfs.grad_squared,self.tfs.unitary_scale,self.tfs.final_state,self.tfs.target_vecs], feed_dict=self.feed_dict)
-                
+
                 self.feed_dict = {self.tfs.learning_rate: 0, self.tfs.start: (np.zeros([num_psi0])), self.tfs.end: (np.zeros([num_psi0])),self.tfs.num_trajs:np.ones([num_psi0]), self.tfs.avg_grad: self.grad_av}
                 
                
                 self.j = jump_traj
                 
              
-            
             
             if not self.sys_para.traj: 
                 self.feed_dict = {self.tfs.learning_rate: learning_rate}
@@ -229,7 +302,7 @@ class run_session:
 
     def create_avg_inter_vecs(self):
         
-        state_num = self.sys_para.state_num
+        state_num = int(self.sys_para.state_num)
         inter_vecs_mag_squared_list = []
         
         inter_vecs_real = []
@@ -248,7 +321,7 @@ class run_session:
             inter_vec_c = inter_vec_real+1j*inter_vec_imag # (4,1000,100)
             
             inter_vec_mag_squared_no_jump = np.square(np.abs(inter_vec_c)) * (1-(self.needed[kk]/self.traj_num) )
-                
+            
             inter_vec_real = (self.inter_vecs_jump[0][0:state_num,:,idx: idx + int(self.needed[kk])])
             inter_vec_imag = (self.inter_vecs_jump[0][state_num:2*state_num,:,idx: idx + int(self.needed[kk])])
             inter_vec_c = inter_vec_real+1j*inter_vec_imag
@@ -259,10 +332,14 @@ class run_session:
                         
             
             inter_vecs_mag_squared_list.append(inter_vec_mag_squared_jump + inter_vec_mag_squared_no_jump)
-            idx = idx + self.needed[kk]
+            idx = idx + int(self.needed[kk])
         
         return inter_vecs_mag_squared_list
+    def create_avg_expects(self):
         
+        
+        
+        return [x + y for x, y in zip(self.expects_no_jump, self.expects_jump)]  
     def create_avg_inter_vecs_all(self):
         state_num = self.sys_para.state_num
         inter_vecs_mag_squared_list = []
@@ -311,10 +388,13 @@ class run_session:
             if (self.iterations % self.conv.update_step == 0):
                 if self.do_all:
                     inters = self.create_avg_inter_vecs_all()
-                    expects = self.expects
+                    
                 else:
                     inters = self.create_avg_inter_vecs()
-                    expects = []
+                    if self.sys_para.expect:
+                        expects = self.create_avg_expects()
+                        self.rl = self.l
+                    
                     
                 self.anly = Analysis(self.sys_para, self.tfs.final_state, self.tfs.ops_weight, self.tfs.unitary_scale,
                                      self.tfs.inter_vecs,self.feed_dict, avg_inter_vecs = inters, expects = expects)

@@ -45,7 +45,7 @@ def mmt_qutip_verification(datafile, operator):
     # append zero control pulse at the end of uks (final timestep)
     uks_t0 = np.zeros((uks.shape[0],1))
     uks = np.hstack([uks,uks_t0])
-    
+    outputs = []
     fig, ax = plt.subplots(figsize=(9,6))
     # looping over each initial vector
     for init_vector_id in range(len(initial_vectors_c)):
@@ -59,7 +59,7 @@ def mmt_qutip_verification(datafile, operator):
             def _function(t,args=None):
                 time_id = int(t/dt)
                 if time_id >= len (uks[0]):
-                    time_id = time_id -1
+                    time_id = len (uks[0]) -1
                 return uks[id][time_id]
             return _function
         
@@ -84,7 +84,7 @@ def mmt_qutip_verification(datafile, operator):
         
         
         
-        
+        outputs.append(output.expect[0])
         ax.plot(tlist, output.expect[0], label=str(init_vector_id))
         
         
@@ -112,6 +112,7 @@ def mmt_qutip_verification(datafile, operator):
     print "all close: " + str(all_close_list)
     print "================================================"
     '''
+    print np.square(np.sum(outputs[0]-outputs[1]))
     ax.legend()
         #ax.set_ylim(-0.01,1.1)
     ax.set_xlabel('Time [ns]')

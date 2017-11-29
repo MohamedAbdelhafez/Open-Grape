@@ -401,12 +401,35 @@ class TensorflowState:
             self.loss = 1-self.get_inner_product_2D(self.final_vecs,self.target_vecs)
         
         else:
-            self.loss = tf.constant(0.0, dtype = tf.float32)
+            #self.loss = tf.constant(0.0, dtype = tf.float32)
             self.final_state = self.inter_vecs_packed[:,self.sys_para.steps,:]
-            self.loss = 1-self.get_inner_product_2D(self.final_state,self.target_vecs)
+            a = []
+            for ii in range (self.sys_para.steps):
+                a.append(tf.constant((self.sys_para.steps-ii), dtype = tf.float32))
+            self.accelerate = tf.stack(a)
+            self.accelerate = tf.ones([self.sys_para.steps])
+            #
             if self.sys_para.expect:
-                self.loss = - tf.abs(tf.reduce_sum(tf.subtract(self.expectations[0,:,0] , self.expectations[1,:,0])))
-            self.loss_list = self.get_loss_list(self.final_state,self.target_vecs)
+                if self.sys_para.do_all:
+                
+                    self.Il = tf.reduce_sum(tf.multiply((tf.subtract(self.expectations[0,:,0] , self.expectations[1,:,0])),self.accelerate))
+                    self.Ild = tf.gradients(self.Il, [self.ops_weight_base])[0]
+                    self.loss = - tf.square(self.Il)
+                    self.quad = tf.gradients(self.loss, [self.ops_weight_base])[0]
+                else: 
+                    self.Il1 = tf.reduce_sum(self.expectations[:,0,0])  
+                    self.Il2 = -tf.reduce_sum(self.expectations[:,1,0])
+                    self.Il = self.Il1 + self.Il2
+                    self.Il1d = tf.gradients(self.Il1, [self.ops_weight_base])[0]
+                    self.Il2d = tf.gradients(self.Il2, [self.ops_weight_base])[0]
+                    self.loss = - tf.square(self.Il)
+                    self.quad = tf.gradients(self.loss, [self.ops_weight_base])[0]
+                    
+                    
+
+            else:
+                self.loss = 1-self.get_inner_product_2D(self.final_state,self.target_vecs)
+                self.loss_list = self.get_loss_list(self.final_state,self.target_vecs)
             self.unitary_scale = self.get_inner_product_2D(self.final_state,self.final_state)
             
     
@@ -495,6 +518,7 @@ class TensorflowState:
             
             self.norms = tf.multiply(self.norms,new_norms)
             self.all_norms.append(self.norms)
+            
             cond= tf.less(self.norms,self.r)
             self.a=tf.where(cond)
             
@@ -590,12 +614,17 @@ class TensorflowState:
             
             self.inter_vecs_list.append(self.new_psi)
             if self.sys_para.expect:
+                
                 self.expects.append(self.expect(self.expect_op, self.new_psi))
+                
         self.inter_vecs_packed = tf.stack(self.inter_vecs_list, axis=1)
         self.inter_vecs = self.inter_vecs_packed
         self.all_norms = tf.stack(self.all_norms)
         if self.sys_para.expect:
-            self.expectations = tf.stack(self.expects, axis=1)
+            if self.sys_para.do_all:
+                self.expectations = tf.stack(self.expects, axis=1)
+            else:
+                self.expectations = tf.stack(self.expects)
         else:
             self.expectations = 0
         
@@ -644,10 +673,25 @@ class TensorflowState:
         return reals, imags
         
     def expect (self, op, psis):
+        result = []
         psis2 = tf.matmul(tf.cast(op,tf.float32),psis)
-        expect1 = self.get_avgd_inner_product (psis, psis2, 0, self.num_trajs[0])
-        expect2 = self.get_avgd_inner_product (psis, psis2, self.num_trajs[0], self.num_trajs[0] + self.num_trajs[1])
-        return expect1, expect2
+        if self.num_trajs[0] !=0:
+            
+            expect1 = self.get_avgd_inner_product (psis, psis2, 0, self.num_trajs[0])
+            if not self.sys_para.do_all:
+                result.append(expect1)
+        else:
+            expect1 = 0
+        if self.num_trajs[1] !=0:
+            expect2 = self.get_avgd_inner_product (psis, psis2, self.num_trajs[0], self.num_trajs[0] + self.num_trajs[1])
+            if not self.sys_para.do_all:
+                result.append(expect2)
+        else:
+            expect2 = 0
+        if self.sys_para.do_all:
+            return expect1, expect2
+        else:
+            return tf.stack(result)
         
     def normalize(self,psi):
         state_num=self.sys_para.state_num

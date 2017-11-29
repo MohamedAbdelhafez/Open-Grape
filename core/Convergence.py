@@ -164,7 +164,7 @@ class Convergence:
             plt.plot(np.array(self.iterations),modifier*np.array(self.reg_costs),'go-',label='All Penalties')
             plt.ylabel('Error')
             plt.xlabel('Iteration')
-            plt.yscale('log')
+            #plt.yscale('log')
             plt.legend()
         else:
             print "Error = %.9f"%self.last_cost
@@ -221,13 +221,20 @@ class Convergence:
               '''  
                 
         if self.anly.expects != []:
-            plt.subplot(gs[-1, :],title="Expectation")
-            plt.plot(np.array([self.sys_para.dt* ii for ii in range(self.sys_para.steps)]),np.array(self.anly.expects[0,:,0]),label="Real_g")
-            plt.plot(np.array([self.sys_para.dt* ii for ii in range(self.sys_para.steps)]),np.array(self.anly.expects[0,:,1]),label="Imag_g")
-            plt.plot(np.array([self.sys_para.dt* ii for ii in range(self.sys_para.steps)]),np.array(self.anly.expects[1,:,0]),label="Real_e")
-            plt.plot(np.array([self.sys_para.dt* ii for ii in range(self.sys_para.steps)]),np.array(self.anly.expects[1,:,1]),label="Imag_e")
+            if self.sys_para.do_all:
+                plt.subplot(gs[-1, :],title="Expectation")
+                plt.plot(np.array([self.sys_para.dt* ii for ii in range(self.sys_para.steps)]),np.array(self.anly.expects[0,:,0]),label="Real_g")
+                plt.plot(np.array([self.sys_para.dt* ii for ii in range(self.sys_para.steps)]),np.array(self.anly.expects[0,:,1]),label="Imag_g")
+                plt.plot(np.array([self.sys_para.dt* ii for ii in range(self.sys_para.steps)]),np.array(self.anly.expects[1,:,0]),label="Real_e")
+                plt.plot(np.array([self.sys_para.dt* ii for ii in range(self.sys_para.steps)]),np.array(self.anly.expects[1,:,1]),label="Imag_e")
+                plt.title('Expectaion of Operator')
+            else:
+                plt.subplot(gs[-1, :],title="Expectation")
+                plt.plot(np.array([self.sys_para.dt* ii for ii in range(self.sys_para.steps)]),np.array(self.anly.expects[0]),label="Real_g")
+                
+                plt.plot(np.array([self.sys_para.dt* ii for ii in range(self.sys_para.steps)]),np.array(self.anly.expects[1]),label="Real_e")
+                
             plt.title('Expectaion of Operator')
-            
             plt.ylabel('Expectation Value')
             plt.xlabel('Time ('+ self.time_unit+')')
             plt.legend()
