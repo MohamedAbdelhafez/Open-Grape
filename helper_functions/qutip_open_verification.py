@@ -16,8 +16,9 @@ def open_qutip_verification(datafile):
         Hops = np.array(hf.get('Hops'))
         initial_vectors_c = np.array(hf.get('initial_vectors_c'))
         target_vectors_c = np.array(hf.get('target_vectors_c'))
+        idx = list(error).index(np.min(error))
         c_ops = np.array(hf.get('c_ops'))
-        uks = np.array(hf.get('uks'))[-1]
+        uks = np.array(hf.get('uks'))[idx]
 
         
     
@@ -80,10 +81,13 @@ def open_qutip_verification(datafile):
         
         output = qt.mesolve(Ht_list, psi0, tlist, cops_qobj,[psi0*psi0.dag(), target*target.dag()])
         
-        print output.expect[1][-1],1-error[-1]
-        print np.abs(output.expect[1][-1]-1+error[-1])/output.expect[1][-1]
+        print output.expect[1][-1],1-error[idx]
+        print np.abs(output.expect[1][-1]-1+error[idx])/output.expect[1][-1]
         
         fig, ax = plt.subplots(figsize=(9,6))
+        np.save( str(datafile)+"_g", output.expect[0])
+        np.save( str(datafile)+"_e", output.expect[1])
+        np.save( str(datafile)+"_t", tlist)
         ax.plot(tlist, output.expect[0], label='initial')
         ax.plot(tlist, output.expect[1], label='target')
         ax.legend()

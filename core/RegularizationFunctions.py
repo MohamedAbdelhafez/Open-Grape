@@ -9,13 +9,13 @@ def get_reg_loss(tfs):
     # Regulizer
     with tf.name_scope('reg_errors'):
         
-        reg_loss = tfs.loss
+        reg_loss = tfs.get_reg_only*tfs.loss
         
         # amplitude
         if 'amplitude' in tfs.sys_para.reg_coeffs:
             amp_reg_alpha_coeff = tfs.sys_para.reg_coeffs['amplitude']
             amp_reg_alpha = amp_reg_alpha_coeff / float(tfs.sys_para.steps)
-            reg_loss = reg_loss + amp_reg_alpha * tf.nn.l2_loss(tfs.ops_weight)
+            #reg_loss = reg_loss + amp_reg_alpha * tf.nn.l2_loss(tfs.ops_weight)
         
         # gaussian envelope
         if 'envelope' in tfs.sys_para.reg_coeffs:
@@ -64,7 +64,7 @@ def get_reg_loss(tfs):
             
             fft_loss = bandpass_reg_alpha*(tf.reduce_sum(tf_fft[:,0:band_id[0]]) + tf.reduce_sum(tf_fft[:,band_id[1]:half_id]))
             
-            reg_loss = reg_loss + fft_loss
+            #reg_loss = reg_loss + fft_loss
         
         
         # Limiting the access to forbidden states

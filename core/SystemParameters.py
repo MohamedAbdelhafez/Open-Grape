@@ -113,12 +113,19 @@ class SystemParameters:
                 with H5File(self.file_path) as hf:
                     hf.add('c_ops',data=self.c_ops)
                    
+                
+            beta = 0*np.identity(self.state_num)
+            print beta
+            
             #ceating the effective hamiltonian that describes the evolution of states if no jumps occur
             for ii in range (len(self.c_ops)):
                 cdaggerc_c = np.dot(np.transpose(np.conjugate(self.c_ops[ii])),self.c_ops[ii])
-                self.c_ops_real.append(c_to_r_mat(self.c_ops[ii]))
+                self.c_ops_real.append(c_to_r_mat(self.c_ops[ii]+beta))
                 self.cdaggerc.append(c_to_r_mat(cdaggerc_c))
-                self.H0_c= self.H0_c + ((0-1j)/2)* ( cdaggerc_c)
+                c_dagger_c_beta = np.dot(np.transpose(np.conjugate(self.c_ops[ii]) + beta),(self.c_ops[ii]+beta)) + np.dot(self.c_ops[ii],beta) - np.dot(np.transpose(np.conjugate(self.c_ops[ii])),(beta))
+                self.H0_c= self.H0_c + ((0-1j)/2)* ( c_dagger_c_beta)
+             
+            print self.c_ops_real[0]
                 
         self.init_operators()
         self.init_one_minus_gaussian_envelope()
@@ -164,6 +171,12 @@ class SystemParameters:
 
         exp_t = 30 #maximum
 
+        
+        if self.traj:
+            for ii in range (len(self.c_ops)):
+                cdaggerc_c = np.dot(np.transpose(np.conjugate(self.c_ops[ii])),self.c_ops[ii])
+                
+                self.H0_c= self.H0_c - ((0-1j)/2)* ( cdaggerc_c)
         H=self.H0_c
         U_f = self.U0_c
         for ii in range (len(self.ops_c)):
@@ -194,6 +207,12 @@ class SystemParameters:
             else:
                 break
         
+        
+        if self.traj:
+            for ii in range (len(self.c_ops)):
+                cdaggerc_c = np.dot(np.transpose(np.conjugate(self.c_ops[ii])),self.c_ops[ii])
+                
+                self.H0_c= self.H0_c + ((0-1j)/2)* ( cdaggerc_c)
         return exp_t
 
 
@@ -309,12 +328,14 @@ class SystemParameters:
         if self.u0 != []:
             
             self.ops_weight_base = np.reshape(self.u0_base, [self.ops_len,self.steps])
+            
         else:
             initial_mean = 0
             index = 0
             
             initial_stddev = (1./np.sqrt(self.steps))
             self.ops_weight_base = np.random.normal(initial_mean, initial_stddev, [self.ops_len ,self.steps])
+            print np.shape(self.ops_weight_base)
         
         self.raw_shape = np.shape(self.ops_weight_base)
         

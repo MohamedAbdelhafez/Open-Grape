@@ -432,16 +432,16 @@ class TensorflowState:
                 self.loss_list = self.get_loss_list(self.final_state,self.target_vecs)
             self.unitary_scale = self.get_inner_product_2D(self.final_state,self.final_state)
             
-    
+        self.get_reg_only = tf.placeholder_with_default(1.0,shape = [])
         self.reg_loss = get_reg_loss(self)
-        
-        print "Training loss initialized."
+        #self.reg_loss = self.loss
+        print "Training loss initialized!"
             
     def init_optimizer(self):
         # Optimizer. Takes a variable learning rate.
         self.learning_rate = tf.placeholder(tf.float32,shape=[])
         self.opt = tf.train.AdamOptimizer(learning_rate = self.learning_rate)
-        
+        self.opt = tf.train.AdagradOptimizer(learning_rate = self.learning_rate)
         #Here we extract the gradients of the pulses
         self.grad = self.opt.compute_gradients(self.reg_loss)
 
@@ -510,7 +510,7 @@ class TensorflowState:
         self.all_jumps= []
         self.all_norms = []
         self.all_norms.append(self.norms)
-        
+        self.vecs = tf.cast(self.num_vecs, tf.int64)
         for ii in np.arange(0,self.sys_para.steps):
             self.old_psi = self.new_psi        
             self.new_psi = matvecexp_op(self.H_weights[:,ii],self.tf_matrix_list,self.old_psi)
@@ -521,21 +521,22 @@ class TensorflowState:
             
             cond= tf.less(self.norms,self.r)
             self.a=tf.where(cond)
-            
+            state_num=self.sys_para.state_num
+            self.reshaped_new = tf.reshape(self.new_psi,[2*state_num*self.num_vecs])
             
             c = tf.constant(0)
             def while_condition(c,old,new,norms,randoms):
                 return tf.less(c, tf.size(self.a))
             def jump_fn(c,old,new,norms,randoms):
-                state_num=self.sys_para.state_num
+                
 
                 index = tf.reshape(tf.gather(self.a,c),[])
                 idx = []
-                vecs = tf.cast(self.num_vecs, tf.int64)
+                
                 for kk in range (2*state_num):
-                    idx.append(index + kk*vecs)
+                    idx.append(index + kk*self.vecs)
                     
-                vector = tf.gather(tf.reshape(new,[2*state_num*self.num_vecs]),idx)
+                vector = tf.gather(self.reshaped_new,idx)
                 #vector = tf.gather(tf.transpose(old),index)
                 
                 

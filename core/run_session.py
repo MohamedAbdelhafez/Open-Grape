@@ -134,7 +134,7 @@ class run_session:
                 _ = self.session.run([self.tfs.optimizer],feed_dict = self.feed_dict)
                 self.g_squared,self.metric, final, target= self.session.run([self.tfs.grad_squared,self.tfs.unitary_scale,self.tfs.final_state,self.tfs.target_vecs], feed_dict=self.feed_dict)
                 
-                
+                self.grad_squared = self.g_squared
             if self.sys_para.traj and not self.do_all:
                 self.traj_num = self.sys_para.trajectories
                 max_traj = int(250000*250/(self.sys_para.steps * len(self.sys_para.H0)))
@@ -152,7 +152,11 @@ class run_session:
                 self.expects_jump = []
                 self.inter_vecs_no_jump = []
                 self.inter_vecs_jump = []
+                vec_trajs = np.ones([num_psi0])
                 
+                self.feed_dict = {self.tfs.learning_rate: 0, self.tfs.start: start, self.tfs.end: end,self.tfs.num_trajs:vec_trajs, self.tfs.get_reg_only: 0.0}
+                self.reg_grad = np.reshape(self.session.run(
+                [self.tfs.grad_pack], feed_dict=self.feed_dict),[1,1,self.sys_para.steps])
                 for kk in range (num_psi0):
                     vec_trajs = np.zeros([num_psi0])
                     vec_trajs[kk] = 1
@@ -198,16 +202,16 @@ class run_session:
                     
                 self.needed = needed_traj
                 jump_traj = np.sum(needed_traj)
-                if jump_traj > 0:
+                if jump_traj > 0 and self.sys_para.expect:
                     e0 = np.zeros(np.shape(expects[:,0,0]))
                     e1 = np.zeros(np.shape(expects[:,0,0]))
                     self.divided_branches = self.divide(needed_traj,max_traj)
                     self.time = time.time()
                     for ii in range (len(self.divided_branches)):
                         
-                        sys.stdout.write('\r'+' Iteration: ' +str(self.iterations) + ": Running batch #" +str(ii+1)+" out of "+str(len(self.divided_branches))+ " with "+str(self.divided_branches[ii])+" jump trajectories, time for last batch is "+str(time.time()-self.time))
+                        #sys.stdout.write('\r'+' Iteration: ' +str(self.iterations) + ": Running batch #" +str(ii+1)+" out of "+str(len(self.divided_branches))+ " with "+str(self.divided_branches[ii])+" jump trajectories, time for last batch is "+str(time.time()-self.time))
                         self.time = time.time()
-                        sys.stdout.flush()
+                        #sys.stdout.flush()
                         needed_traj = self.divided_branches[ii]
                         
                         #print "Doing " + str(needed_traj) + " jump trajectories with start: " + str(start)+ " and end: " + str(end)
@@ -216,6 +220,7 @@ class run_session:
                         if self.sys_para.expect:
                             self.rl,self.grad_pack, self.norms,self.l,inter_vecs,all_norms, expects, linear,  quad, l1, l2, l1d, l2d = self.session.run(
                 [self.tfs.reg_loss,self.tfs.grad_pack,self.tfs.norms,self.tfs.loss,self.tfs.inter_vecs,self.tfs.all_norms, self.tfs.expectations, self.tfs.Il,self.tfs.quad, self.tfs.Il1, self.tfs.Il2, self.tfs.Il1d, self.tfs.Il2d], feed_dict=self.feed_dict)
+                            self.others = self.rl - self.l
                             
                             
                             
@@ -258,8 +263,8 @@ class run_session:
                     self.expects_jump.append(e0)
                     self.expects_jump.append(e1)
                     self.l = np.square(self.ls[0] + self.ls[1])
-                    self.grad_av = np.reshape(-2 * self.ls[0] * self.gs[0] -2 * self.ls[1] * self.gs[1] , np.shape(self.grad_pack))
-                    self.rl = self.l
+                    self.grad_av = np.reshape(-2 * self.ls[0] * self.gs[0] -2 * self.ls[1] * self.gs[1] , np.shape(self.grad_pack)) + np.reshape(self.reg_grad, np.shape(self.grad_pack))
+                    self.rl = self.l + self.others
                 
                 learning_rate = float(self.conv.rate) * np.exp(-float(self.iterations) / self.conv.learning_rate_decay)
             #print "statistical error: " + str((np.std(self.loss_list1)/np.sqrt(self.traj_num))/self.l)
@@ -273,7 +278,7 @@ class run_session:
                 
                
                 self.j = jump_traj
-                
+                self.grad_squared = np.sum(np.square(self.grad_av))
              
             
             if not self.sys_para.traj: 
@@ -392,12 +397,12 @@ class run_session:
                 else:
                     inters = self.create_avg_inter_vecs()
                     if self.sys_para.expect:
-                        expects = self.create_avg_expects()
-                        self.rl = self.l
+                        self.expects = self.create_avg_expects()
+                        self.rl = self.l + self.others
                     
                     
                 self.anly = Analysis(self.sys_para, self.tfs.final_state, self.tfs.ops_weight, self.tfs.unitary_scale,
-                                     self.tfs.inter_vecs,self.feed_dict, avg_inter_vecs = inters, expects = expects)
+                                     self.tfs.inter_vecs,self.feed_dict, avg_inter_vecs = inters, expects = self.expects)
                 self.save_data()
                 self.display()
             if (self.iterations % self.conv.evol_save_step == 0):
@@ -461,10 +466,10 @@ class run_session:
         # display of simulation results
 
         if self.show_plots:
-            self.conv.update_plot_summary(self.l, self.rl, self.anly,self.j)
+            self.conv.update_plot_summary(self.l, self.rl, self.anly,self.grad_squared,self.j )
         else:
             print 'Error = :%1.5e; Runtime: %.1fs; Iterations = %d, grads =  %10.3e, unitary_metric = %.5f' % (
-            self.l, self.elapsed, self.iterations, self.g_squared, self.metric) + ", jump trajectories: " + str(self.j)
+            self.l, self.elapsed, self.iterations, self.grad_squared, self.metric) + ", jump trajectories: " + str(self.j)
     
     
     def minimize_opt_fun(self,x):

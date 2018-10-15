@@ -3,7 +3,7 @@ import h5py
 import matplotlib.pyplot as plt
 import qutip as qt
 
-def mmt_qutip_verification(datafile, operator):
+def mmt_qutip_verification(datafile, operator, idx = -1):
     
     
     # load data from file
@@ -17,7 +17,7 @@ def mmt_qutip_verification(datafile, operator):
         initial_vectors_c = np.array(hf.get('initial_vectors_c'))
         target_vectors_c = np.array(hf.get('target_vectors_c'))
         c_ops = np.array(hf.get('c_ops'))
-        uks = np.array(hf.get('uks'))[-1]
+        uks = np.array(hf.get('uks'))[idx]
 
         
     

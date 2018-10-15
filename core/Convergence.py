@@ -67,11 +67,13 @@ class Convergence:
             
         self.inter_vecs = anly.get_inter_vecs()
 
-    def update_plot_summary(self,last_cost, last_reg_cost, anly, j = None):
+    def update_plot_summary(self,last_cost, last_reg_cost, anly,gs,  j =None):
         self.concerned = self.sys_para.states_concerned_list
         self.last_cost = last_cost
         self.last_reg_cost = last_reg_cost
         self.j = j
+        #print(self.j)
+        self.gs = gs
         self.anly = anly
         self.save_evol(anly)
         self.plot_summary()
@@ -85,9 +87,11 @@ class Convergence:
     
     def plot_inter_vecs_general(self,pop_inter_vecs,start):
         # plot state evolution
+        colors = ["red", "blue" , "black","purple", "orange"]
+
         if self.sys_para.draw_list !=[]:
             for kk in range(len(self.sys_para.draw_list)):
-                plt.plot(np.array([self.sys_para.dt* ii for ii in range(self.sys_para.steps+1)]),np.array(pop_inter_vecs[self.sys_para.draw_list[kk],:]),label=self.sys_para.draw_names[kk])
+                plt.plot(np.array([self.sys_para.dt* ii for ii in range(self.sys_para.steps+1)]),np.array(pop_inter_vecs[self.sys_para.draw_list[kk],:]),label=self.sys_para.draw_names[kk],color = colors[kk%len(colors)])
                 
         
         else:
@@ -149,11 +153,11 @@ class Convergence:
             
             
           
-            plt.subplot(gs[index, :],title='Error = %1.2e; Other errors = %1.2e;  Runtime: %.1fs; Estimated Remaining Runtime: %.1fh' % (self.last_cost, self.last_reg_cost-self.last_cost,
+            plt.subplot(gs[index, :],title='Error = %1.2e; Other errors = %1.2e;  Runtime: %.1fs; Estimated Remaining Runtime: %.1fh, grads:%1.2e ' % (self.last_cost, self.last_reg_cost-self.last_cost,
                                                                                                    
                                                                                                  
                                                                                                   self.runtime,
-                                                                                                  self.estimated_runtime,)+", jump trajectories: "+str(self.j))
+                                                                                                  self.estimated_runtime,self.gs, )+", jump trajectories: "+str(self.j))
             
             index +=1
             if self.sys_para.expect:

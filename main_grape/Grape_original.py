@@ -2,9 +2,14 @@ import tensorflow as tf
 import numpy as np
 import scipy.linalg as la
 from core.TensorflowState import TensorflowState
+from core.TensorflowState_linear import TensorflowState as TensorflowState_lin
+
 from core.SystemParameters import SystemParameters
 from core.Convergence import Convergence
-from core.run_session import run_session
+from core.run_session import run_session as rs
+from core.run_session_original import run_session as rs_o
+from core.run_session_linear import run_session as rs_lin
+
 from core.Python_evolve import Python_evolve
 
 
@@ -112,14 +117,20 @@ def Grape(H0,Hops,Hnames,U,total_time,steps,states_concerned_list,convergence = 
         
         
     with tf.device(dev):
-        tfs = TensorflowState(sys_para) # create tensorflow graph
+        tfs = TensorflowState_lin(sys_para) # create tensorflow graph
         graph = tfs.build_graph()
     
     conv = Convergence(sys_para,time_unit,convergence)
     
     # run the optimization
     try:
-        SS = run_session(tfs,graph,conv,sys_para,method, show_plots = sys_para.show_plots, use_gpu = use_gpu)
+        if sys_para.expect:
+            #SS = rs(tfs,graph,conv,sys_para,method, show_plots = sys_para.show_plots, use_gpu = use_gpu)
+            SS = rs_lin(tfs,graph,conv,sys_para,method, show_plots = sys_para.show_plots, use_gpu = use_gpu)
+        
+        else:
+            SS = rs_o(tfs,graph,conv,sys_para,method, show_plots = sys_para.show_plots, use_gpu = use_gpu)
+            
         
         # save wall clock time   
         if save:

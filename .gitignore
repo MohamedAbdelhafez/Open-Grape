@@ -2,7 +2,6 @@
 sbatch_file/*
 *.pyc
 .ipynb_checkpoints/
-Examples/*
 *.so
 *.o
 custom_kernels/build/temp/*
